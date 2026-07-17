@@ -135,6 +135,23 @@
   .thumb.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
   .strip .empty{color:var(--ink-mute);font-family:var(--mono);font-size:11px;padding-left:6px}
 
+  /* series bar (birden fazla sekans bulununca) */
+  .seriesbar{
+    display:flex;gap:6px;align-items:center;flex-shrink:0;padding:7px 10px;
+    background:var(--bg-2);border-top:1px solid var(--line);overflow-x:auto;
+  }
+  .seriesbar .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.6px;color:var(--ink-mute);white-space:nowrap;flex-shrink:0}
+  .schip{
+    flex-shrink:0;display:flex;flex-direction:column;gap:1px;padding:5px 11px;border-radius:7px;
+    border:1px solid var(--line-2);background:var(--panel);color:var(--ink-dim);cursor:pointer;
+    font-size:11px;transition:.13s;text-align:left;min-width:0;
+  }
+  .schip:hover{border-color:var(--accent-dim);color:var(--ink)}
+  .schip.active{border-color:var(--accent);background:rgba(62,199,196,.12);color:var(--ink)}
+  .schip b{font-size:11.5px;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+  .schip span{font-family:var(--mono);font-size:9.5px;color:var(--ink-mute)}
+  .schip.active span{color:var(--accent-dim)}
+
   /* Right panel */
   .side{
     width:340px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--line);
@@ -236,11 +253,16 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M4 9h16"/><circle cx="8" cy="7" r="0"/></svg>
       Örnek Seri
     </button>
-    <button class="tbtn primary" id="btnOpen" title="Kendi DICOM dosyalarını aç">
+    <button class="tbtn primary" id="btnOpenFolder" title="Hasta CD'sindeki bir klasörü (alt klasörler dahil) toptan aç">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
+      Klasör Aç
+    </button>
+    <button class="tbtn" id="btnOpen" title="Tek tek DICOM dosyası seç">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
-      DICOM Aç
+      Dosya Aç
     </button>
     <input type="file" id="fileInput" multiple hidden>
+    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
   </div>
 
   <div class="body">
@@ -301,6 +323,7 @@
         <div class="ovl br" id="ovlBR"></div>
         <div class="scalebar" id="scalebar" style="display:none"><div class="bar"></div><span></span></div>
       </div>
+      <div class="seriesbar" id="seriesbar" style="display:none"></div>
       <div class="strip" id="strip"><span class="empty">Seri yüklenmedi — "Örnek Seri" ile başlayabilirsin.</span></div>
     </div>
 
@@ -338,6 +361,8 @@ const state = {
   measure: [],         // ölçüm noktaları (görüntü koordinatı)
   drag: null,
   pxSpacing: null,     // [row, col] mm
+  groups: [],          // yüklenen tüm seriler (birden fazla sekans olabilir)
+  groupIdx: 0,
 };
 
 /* --------------------------------------------------------------------------
@@ -512,6 +537,7 @@ function buildInstance(dv, tags){
     rows, cols, mvals, rgb, photometric, mn, mx, wc, ww, pxSpacing,
     instanceNumber: firstNum(tags["0020,0013"]) ?? 0,
     sliceLoc: firstNum(tags["0020,1041"]),
+    seriesUID: tags["0020,000E"] || null,
     meta:{
       patientName: cleanName(tags["0010,0010"]),
       patientId: tags["0010,0020"]||"—",
@@ -540,12 +566,25 @@ function fmtDate(s){ if(!s||s.length<8) return "—"; return s.slice(0,4)+"-"+s.
    2) DOSYA YÜKLEME
    ========================================================================== */
 $("#btnOpen").onclick = ()=> $("#fileInput").click();
-$("#fileInput").onchange = e => loadFiles(e.target.files);
+$("#fileInput").onchange = e => { loadFiles(e.target.files); e.target.value=""; };
+$("#btnOpenFolder").onclick = ()=> $("#folderInput").click();
+$("#folderInput").onchange = e => { loadFiles(e.target.files); e.target.value=""; };
+
+// dosya adına göre kesin-olmayan (DICOM olamayacak) dosyaları erkenden ele
+const SKIP_EXT = /\.(png|jpe?g|gif|bmp|txt|pdf|xml|html?|ini|dll|exe|lnk|log)$/i;
+const SKIP_NAME = /^(dicomdir|autorun|custom|vendor|lite|iq|dcmtkdll)$/i;
+function looksSkippable(name){
+  const base = name.split(/[\\/]/).pop();
+  if(SKIP_EXT.test(base)) return true;
+  const stem = base.replace(/\.[^.]+$/,"");
+  if(SKIP_NAME.test(stem)) return true;
+  return false;
+}
 
 function loadFiles(fileList){
-  const files = [...fileList].filter(f=>!/\.(png|jpg|jpeg|gif|txt|pdf|xml|html|ini)$/i.test(f.name));
+  const files = [...fileList].filter(f=>!looksSkippable(f.name));
   if(!files.length){ toast("DICOM dosyası bulunamadı."); return; }
-  toast(files.length+" dosya okunuyor…");
+  toast(files.length+" dosya taranıyor…");
   const insts = []; let done=0, compressed=0, failed=0;
   files.forEach(f=>{
     const rd = new FileReader();
@@ -564,18 +603,53 @@ function loadFiles(fileList){
   function finish(){
     if(!insts.length){
       if(compressed){ toast("Bu dosyalar sıkıştırılmış (JPEG). Bu hafif okuyucu yalnız sıkıştırılmamış DICOM açar."); }
-      else toast("Görüntü çözülemedi.");
+      else toast("Görüntü çözülemedi. Seçtiğin klasörde .dcm kesit dosyası bulunamadı.");
       return;
     }
-    insts.sort((a,b)=> (a.instanceNumber-b.instanceNumber) || 0);
-    setSeries(insts, insts[0].meta.seriesDesc);
-    let msg = insts.length+" kesit yüklendi";
-    if(compressed) msg += " · "+compressed+" sıkıştırılmış atlandı";
-    toast(msg);
+    loadGroups(insts, compressed);
   }
 }
 
-// Drag & drop
+// aynı seriye (SeriesInstanceUID, yoksa seri açıklaması+no) ait kesitleri grupla
+function loadGroups(insts, compressedCount){
+  const map = new Map();
+  insts.forEach(inst=>{
+    const key = inst.seriesUID || (inst.meta.seriesDesc+"|"+inst.meta.seriesNo);
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(inst);
+  });
+  const groups = [...map.values()].map(list=>{
+    list.sort((a,b)=> (a.instanceNumber-b.instanceNumber) || ((a.sliceLoc??0)-(b.sliceLoc??0)));
+    return { insts:list, meta:list[0].meta };
+  });
+  groups.sort((a,b)=> (+a.meta.seriesNo||0) - (+b.meta.seriesNo||0));
+
+  state.groups = groups; state.groupIdx = 0;
+  renderSeriesBar();
+  setSeries(groups[0].insts, groups[0].meta.seriesDesc);
+
+  let msg = insts.length+" kesit";
+  if(groups.length>1) msg += " · "+groups.length+" seri bulundu";
+  if(compressedCount) msg += " · "+compressedCount+" sıkıştırılmış atlandı";
+  toast(msg);
+}
+
+function renderSeriesBar(){
+  const bar = $("#seriesbar");
+  if(!state.groups || state.groups.length<2){ bar.style.display="none"; bar.innerHTML=""; return; }
+  bar.style.display="flex";
+  bar.innerHTML = `<span class="lbl">SERİLER (${state.groups.length})</span>` + state.groups.map((g,i)=>
+    `<button class="schip ${i===state.groupIdx?'active':''}" data-g="${i}"><b>${esc(g.meta.seriesDesc||'Seri '+(i+1))}</b><span>${g.meta.modality||'—'} · ${g.insts.length} kesit</span></button>`
+  ).join("");
+  bar.querySelectorAll("[data-g]").forEach(b=> b.onclick=()=>{
+    state.groupIdx = +b.dataset.g;
+    const g = state.groups[state.groupIdx];
+    setSeries(g.insts, g.meta.seriesDesc);
+    renderSeriesBar();
+  });
+}
+
+// Drag & drop (dosyaları; tarayıcı klasör sürüklemesini düz listeye indirger)
 ["dragenter","dragover"].forEach(ev=>viewport.addEventListener(ev,e=>{e.preventDefault();viewport.classList.add("dragover")}));
 ["dragleave","drop"].forEach(ev=>viewport.addEventListener(ev,e=>{e.preventDefault();viewport.classList.remove("dragover")}));
 viewport.addEventListener("drop", e=>{
@@ -635,6 +709,7 @@ function buildDemo(){
       }
     });
   }
+  state.groups = []; renderSeriesBar();
   setSeries(insts, "T2 TSE Axial · DEMO");
   toast("Örnek beyin MR serisi yüklendi (22 kesit).");
 }
