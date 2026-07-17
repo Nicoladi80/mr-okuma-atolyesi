@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Tıp öğrencileri için tarayıcıda çalışan DICOM MR görüntüleyici ve iQ-VIEW tarzı adım adım okuma öğreticisi.">
+</head>
+<body>
+<title>MR Okuma Atölyesi — DICOM Görüntüleyici & Öğretici</title>
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#0a0e13;
+    --bg-2:#0d141b;
+    --panel:#131b22;
+    --panel-2:#182028;
+    --line:#243039;
+    --line-2:#2f3d48;
+    --ink:#c6d2db;
+    --ink-dim:#8b9aa6;
+    --ink-mute:#5f7180;
+    --accent:#3ec7c4;
+    --accent-dim:#2a8f8c;
+    --amber:#f2b338;
+    --red:#ff6b6b;
+    --green:#63d68a;
+    --mono: ui-monospace,"SF Mono","JetBrains Mono","Roboto Mono",Menlo,Consolas,monospace;
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --radius:7px;
+    --shadow: 0 8px 30px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+  button{font-family:inherit}
+  .mono{font-family:var(--mono)}
+  .app{display:flex;flex-direction:column;height:100vh;width:100vw}
+
+  /* Top bar */
+  .topbar{
+    display:flex;align-items:center;gap:14px;flex-shrink:0;
+    height:52px;padding:0 16px;background:linear-gradient(180deg,#101922,#0b1219);
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:11px;min-width:0}
+  .brand .glyph{
+    width:30px;height:30px;border-radius:6px;flex-shrink:0;position:relative;
+    background:radial-gradient(circle at 50% 42%,#0c1620 0 22%,var(--accent) 23% 30%,#0c1620 31% 44%,var(--accent-dim) 45% 52%,#0c1620 53%);
+    box-shadow:inset 0 0 0 1px #2b3a44,0 0 14px rgba(62,199,196,.25);
+  }
+  .brand h1{font-size:14.5px;margin:0;font-weight:650;letter-spacing:.2px;white-space:nowrap}
+  .brand .sub{font-size:10px;color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;font-family:var(--mono)}
+  .topbar .spacer{flex:1}
+  .badge-edu{
+    font-family:var(--mono);font-size:10px;letter-spacing:.5px;color:var(--amber);
+    border:1px solid rgba(242,179,56,.35);background:rgba(242,179,56,.08);
+    padding:4px 9px;border-radius:20px;white-space:nowrap;
+  }
+  .tbtn{
+    display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;
+    background:var(--panel);border:1px solid var(--line-2);color:var(--ink);
+    border-radius:var(--radius);cursor:pointer;font-size:12.5px;font-weight:550;
+    transition:.14s;white-space:nowrap;
+  }
+  .tbtn:hover{border-color:var(--accent-dim);background:var(--panel-2)}
+  .tbtn.primary{background:var(--accent);border-color:var(--accent);color:#04211f;font-weight:650}
+  .tbtn.primary:hover{filter:brightness(1.08)}
+  .tbtn svg{width:15px;height:15px}
+
+  /* Body layout */
+  .body{display:flex;flex:1;min-height:0}
+
+  /* Left tool rail */
+  .rail{
+    width:60px;flex-shrink:0;background:var(--bg-2);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 0;overflow-y:auto;
+  }
+  .rail .grp{width:100%;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .rail .rlabel{font-family:var(--mono);font-size:8px;letter-spacing:.6px;color:var(--ink-mute);margin:6px 0 1px}
+  .rail hr{width:34px;border:none;border-top:1px solid var(--line);margin:5px 0}
+  .tool{
+    width:44px;height:44px;border-radius:8px;border:1px solid transparent;background:transparent;
+    color:var(--ink-dim);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    transition:.13s;position:relative;
+  }
+  .tool svg{width:19px;height:19px}
+  .tool span{font-size:8.5px;font-family:var(--mono);letter-spacing:.2px}
+  .tool:hover{background:var(--panel);color:var(--ink)}
+  .tool.active{background:rgba(62,199,196,.14);border-color:var(--accent-dim);color:var(--accent)}
+  .tool.coach{animation:coachPulse 1.3s ease-in-out infinite}
+  @keyframes coachPulse{0%,100%{box-shadow:0 0 0 0 rgba(62,199,196,.55)}50%{box-shadow:0 0 0 5px rgba(62,199,196,0)}}
+
+  /* Viewport */
+  .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:#000}
+  .viewport{
+    flex:1;position:relative;overflow:hidden;background:#000;
+    display:flex;align-items:center;justify-content:center;cursor:crosshair;
+  }
+  #cv{display:block;image-rendering:pixelated}
+  .drop-hint{
+    position:absolute;inset:14px;border:1.5px dashed var(--line-2);border-radius:10px;
+    display:none;align-items:center;justify-content:center;pointer-events:none;
+    color:var(--accent);font-family:var(--mono);font-size:14px;background:rgba(62,199,196,.05);
+  }
+  .viewport.dragover .drop-hint{display:flex}
+
+  /* corner overlays */
+  .ovl{position:absolute;font-family:var(--mono);font-size:11px;line-height:1.5;pointer-events:none;text-shadow:0 1px 3px #000;letter-spacing:.2px}
+  .ovl.tl{top:10px;left:12px;color:#9fe9e5}
+  .ovl.tr{top:10px;right:12px;text-align:right;color:var(--ink-dim)}
+  .ovl.bl{bottom:10px;left:12px;color:var(--ink-dim)}
+  .ovl.br{bottom:10px;right:12px;text-align:right;color:var(--ink-dim)}
+  .ovl .k{color:var(--ink-mute)}
+  .ovl .hot{color:var(--accent)}
+  .scalebar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);pointer-events:none;color:var(--ink-dim);font-family:var(--mono);font-size:10px;text-align:center}
+  .scalebar .bar{height:3px;background:var(--ink-dim);margin:0 auto 3px;border-radius:1px}
+
+  /* thumbnail strip */
+  .strip{
+    height:78px;flex-shrink:0;background:var(--bg-2);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:6px;padding:0 10px;overflow-x:auto;overflow-y:hidden;
+  }
+  .strip::-webkit-scrollbar{height:7px}
+  .strip::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+  .thumb{
+    height:58px;width:58px;flex-shrink:0;border-radius:5px;border:1.5px solid var(--line);
+    background:#000;cursor:pointer;position:relative;overflow:hidden;transition:.12s;
+  }
+  .thumb canvas{width:100%;height:100%;display:block}
+  .thumb .n{position:absolute;bottom:1px;right:3px;font-family:var(--mono);font-size:8px;color:#9fb0bd;text-shadow:0 1px 2px #000}
+  .thumb.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .strip .empty{color:var(--ink-mute);font-family:var(--mono);font-size:11px;padding-left:6px}
+
+  /* Right panel */
+  .side{
+    width:340px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .side .tabs{display:flex;border-bottom:1px solid var(--line);flex-shrink:0}
+  .side .tab{
+    flex:1;padding:12px 8px;background:transparent;border:none;color:var(--ink-mute);
+    cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.3px;border-bottom:2px solid transparent;transition:.13s;
+  }
+  .side .tab:hover{color:var(--ink)}
+  .side .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .side .pane{flex:1;overflow-y:auto;padding:16px}
+  .side .pane::-webkit-scrollbar{width:8px}
+  .side .pane::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+
+  /* metadata */
+  .meta-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
+  .meta-row .lbl{color:var(--ink-mute);font-family:var(--mono);font-size:10.5px;letter-spacing:.2px}
+  .meta-row .val{color:var(--ink);font-family:var(--mono);text-align:right;word-break:break-word}
+  .meta-row .val.hi{color:var(--accent)}
+  .meta-h{font-size:10px;font-family:var(--mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-mute);margin:16px 0 4px;padding-top:8px}
+  .meta-h:first-child{margin-top:0;padding-top:0}
+  .tagcode{color:var(--ink-mute);font-size:9px}
+
+  /* tutorial */
+  .lesson-progress{display:flex;gap:4px;margin-bottom:14px}
+  .lesson-progress i{height:4px;flex:1;background:var(--line-2);border-radius:2px;transition:.2s}
+  .lesson-progress i.done{background:var(--accent-dim)}
+  .lesson-progress i.cur{background:var(--accent)}
+  .lesson-kicker{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:6px}
+  .lesson-title{font-size:18px;font-weight:680;margin:0 0 10px;line-height:1.25;text-wrap:balance}
+  .lesson-body{font-size:13.5px;color:var(--ink);line-height:1.62}
+  .lesson-body p{margin:0 0 11px}
+  .lesson-body strong{color:#fff;font-weight:640}
+  .lesson-body .hot{color:var(--accent);font-weight:600}
+  .try{
+    margin:13px 0;padding:11px 13px;border-radius:8px;border:1px solid var(--accent-dim);
+    background:rgba(62,199,196,.07);font-size:12.5px;
+  }
+  .try b{color:var(--accent);font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:4px}
+  .note{
+    margin:13px 0;padding:10px 13px;border-radius:8px;border-left:3px solid var(--amber);
+    background:rgba(242,179,56,.07);font-size:12px;color:var(--ink-dim);
+  }
+  .seq-table{width:100%;border-collapse:collapse;margin:6px 0 4px;font-size:11.5px}
+  .seq-table th{text-align:left;color:var(--ink-mute);font-family:var(--mono);font-size:9.5px;letter-spacing:.5px;text-transform:uppercase;padding:5px 6px;border-bottom:1px solid var(--line)}
+  .seq-table td{padding:6px;border-bottom:1px solid var(--line);vertical-align:top}
+  .seq-table td:first-child{color:var(--accent);font-family:var(--mono);white-space:nowrap}
+  .lesson-nav{display:flex;gap:8px;margin-top:18px}
+  .lesson-nav button{
+    flex:1;height:38px;border-radius:7px;cursor:pointer;font-size:12.5px;font-weight:600;transition:.13s;
+    border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);
+  }
+  .lesson-nav button:hover:not(:disabled){border-color:var(--accent-dim)}
+  .lesson-nav button.next{background:var(--accent);border-color:var(--accent);color:#04211f}
+  .lesson-nav button:disabled{opacity:.4;cursor:default}
+  .lesson-list{margin-top:6px}
+  .lesson-list button{
+    display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 9px;margin-bottom:3px;
+    background:transparent;border:1px solid transparent;border-radius:6px;color:var(--ink-dim);cursor:pointer;font-size:12px;transition:.12s;
+  }
+  .lesson-list button:hover{background:var(--panel-2);color:var(--ink)}
+  .lesson-list button.cur{border-color:var(--accent-dim);background:rgba(62,199,196,.08);color:var(--ink)}
+  .lesson-list .num{font-family:var(--mono);font-size:10px;color:var(--ink-mute);width:16px}
+  .lesson-list button.cur .num{color:var(--accent)}
+
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:var(--panel-2);border:1px solid var(--accent-dim);color:var(--ink);
+    padding:10px 18px;border-radius:22px;font-size:12.5px;box-shadow:var(--shadow);
+    opacity:0;pointer-events:none;transition:.25s;z-index:50;font-family:var(--mono);
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;background:var(--line-2);border-radius:3px;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid #06231f}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid #06231f}
+
+  @media (max-width:860px){
+    .side{width:290px}
+    .brand .sub{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="glyph" aria-hidden="true"></div>
+      <div style="min-width:0">
+        <h1>MR Okuma Atölyesi</h1>
+        <div class="sub">DICOM Görüntüleyici · Öğretici</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="badge-edu">⚠ SADECE EĞİTİM · TANI İÇİN KULLANILMAZ</div>
+    <button class="tbtn" id="btnDemo" title="Örnek MR serisini yükle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M4 9h16"/><circle cx="8" cy="7" r="0"/></svg>
+      Örnek Seri
+    </button>
+    <button class="tbtn primary" id="btnOpen" title="Kendi DICOM dosyalarını aç">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>
+      DICOM Aç
+    </button>
+    <input type="file" id="fileInput" multiple hidden>
+  </div>
+
+  <div class="body">
+    <!-- Tool rail -->
+    <div class="rail" id="rail">
+      <div class="grp">
+        <div class="rlabel">ARAÇ</div>
+        <button class="tool active" data-tool="wl" title="Pencere / Seviye (kontrast & parlaklık)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" fill="currentColor"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+          <span>W/L</span>
+        </button>
+        <button class="tool" data-tool="zoom" title="Yakınlaştır (sürükle)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4M11 8v6M8 11h6"/></svg>
+          <span>Zoom</span>
+        </button>
+        <button class="tool" data-tool="pan" title="Kaydır">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></svg>
+          <span>Kaydır</span>
+        </button>
+        <button class="tool" data-tool="measure" title="Mesafe ölç (iki nokta)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20L20 4M4 20l3-1M4 20l1-3M20 4l-3 1M20 4l-1 3"/></svg>
+          <span>Ölç</span>
+        </button>
+      </div>
+      <hr>
+      <div class="grp">
+        <div class="rlabel">GÖRÜNÜM</div>
+        <button class="tool" data-act="invert" title="Negatif (invert)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>
+          <span>İnvert</span>
+        </button>
+        <button class="tool" data-act="fit" title="Ekrana sığdır">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+          <span>Sığdır</span>
+        </button>
+        <button class="tool" data-act="reset" title="Tümünü sıfırla">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/></svg>
+          <span>Sıfırla</span>
+        </button>
+      </div>
+      <hr>
+      <div class="grp">
+        <div class="rlabel">PRESET</div>
+        <button class="tool" data-preset="brain" title="Beyin penceresi"><span style="font-size:9px;line-height:1.15">Beyin</span></button>
+        <button class="tool" data-preset="soft" title="Yumuşak doku"><span style="font-size:9px;line-height:1.15">Yumu.<br>Doku</span></button>
+        <button class="tool" data-preset="full" title="Tam aralık"><span style="font-size:9px;line-height:1.15">Tam</span></button>
+      </div>
+    </div>
+
+    <!-- Stage -->
+    <div class="stage">
+      <div class="viewport" id="viewport">
+        <canvas id="cv" width="512" height="512"></canvas>
+        <div class="drop-hint">DICOM dosyalarını buraya bırak</div>
+        <div class="ovl tl" id="ovlTL"></div>
+        <div class="ovl tr" id="ovlTR"></div>
+        <div class="ovl bl" id="ovlBL"></div>
+        <div class="ovl br" id="ovlBR"></div>
+        <div class="scalebar" id="scalebar" style="display:none"><div class="bar"></div><span></span></div>
+      </div>
+      <div class="strip" id="strip"><span class="empty">Seri yüklenmedi — "Örnek Seri" ile başlayabilirsin.</span></div>
+    </div>
+
+    <!-- Side panel -->
+    <div class="side">
+      <div class="tabs">
+        <button class="tab active" data-pane="tut">📖 Öğretici</button>
+        <button class="tab" data-pane="meta">🏷 DICOM Etiketleri</button>
+      </div>
+      <div class="pane" id="paneTut"></div>
+      <div class="pane" id="paneMeta" style="display:none"></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ============================================================================
+   MR OKUMA ATÖLYESI
+   Bağımsız (harici kütüphanesiz) DICOM görüntüleyici + öğretici.
+   ========================================================================== */
+
+const $ = s => document.querySelector(s);
+const cv = $("#cv"), ctx = cv.getContext("2d");
+const viewport = $("#viewport");
+
+const state = {
+  series: [],          // yüklenen instance dizisi
+  index: 0,
+  wc: 40, ww: 400,     // pencere seviyesi / genişliği (modality değeri cinsinden)
+  zoom: 1, panX: 0, panY: 0,
+  invert: false,
+  tool: "wl",
+  measure: [],         // ölçüm noktaları (görüntü koordinatı)
+  drag: null,
+  pxSpacing: null,     // [row, col] mm
+};
+
+/* --------------------------------------------------------------------------
+   TOAST
+   ------------------------------------------------------------------------ */
+let toastT;
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove("show"), 2200);
+}
+
+/* ==========================================================================
+   1) DICOM AYRIŞTIRICI  (uncompressed Explicit/Implicit VR Little Endian)
+   ========================================================================== */
+const VR_LONG = new Set(["OB","OW","OF","OL","OD","SQ","UT","UN","UC","UR"]);
+// implicit VR için ihtiyaç duyduğumuz etiketlerin türü
+function tagKey(g,e){ return ((g<<16)|e)>>>0; }
+
+function readString(dv, off, len){
+  let s = "";
+  for(let i=0;i<len;i++){ const c = dv.getUint8(off+i); if(c===0) break; s += String.fromCharCode(c); }
+  return s.trim();
+}
+
+// Basit DICOM parse — döner: instance nesnesi ya da {error}
+function parseDicom(buf){
+  const dv = new DataView(buf);
+  if(buf.byteLength < 132) return {error:"Dosya çok küçük — DICOM değil."};
+  // 'DICM' magic (offset 128)
+  const magic = String.fromCharCode(dv.getUint8(128),dv.getUint8(129),dv.getUint8(130),dv.getUint8(131));
+  let pos, explicit = true, littleEndian = true, hasPreamble = (magic === "DICM");
+  const tags = {};
+  let transferSyntax = "1.2.840.10008.1.2.1"; // varsayılan explicit LE
+
+  if(hasPreamble){
+    pos = 132;
+    // meta grubu (0002) daima Explicit VR Little Endian
+    pos = readGroup(dv, pos, tags, true, true, 0x0002, /*metaOnly*/true);
+    transferSyntax = (tags["0002,0010"] || "").replace(/\0/g,"").trim() || transferSyntax;
+  } else {
+    // preamble yok — bazı CD'ler doğrudan dataset ile başlar (implicit LE varsay)
+    pos = 0; transferSyntax = "1.2.840.10008.1.2";
+  }
+
+  // transfer syntax yorumu
+  if(transferSyntax === "1.2.840.10008.1.2"){ explicit = false; littleEndian = true; }
+  else if(transferSyntax === "1.2.840.10008.1.2.1"){ explicit = true; littleEndian = true; }
+  else if(transferSyntax === "1.2.840.10008.1.2.2"){ explicit = true; littleEndian = false; }
+  else if(transferSyntax.startsWith("1.2.840.10008.1.2.1.99")){ explicit = true; littleEndian = true; } // deflated değil ama dene
+  else {
+    return {error:"compressed", ts:transferSyntax};
+  }
+
+  // dataset oku
+  readDataset(dv, pos, tags, explicit, littleEndian);
+  return buildInstance(dv, tags);
+}
+
+// meta grup okuyucu (0002) — explicit LE
+function readGroup(dv, pos, tags, explicit, le, onlyGroup, metaOnly){
+  const n = dv.byteLength;
+  while(pos + 8 <= n){
+    const group = dv.getUint16(pos, le);
+    if(metaOnly && group !== onlyGroup){ break; } // meta grup bitti
+    const elem = dv.getUint16(pos+2, le);
+    let vr, len, valOff;
+    vr = String.fromCharCode(dv.getUint8(pos+4), dv.getUint8(pos+5));
+    if(VR_LONG.has(vr)){
+      len = dv.getUint32(pos+8, le); valOff = pos+12;
+    } else {
+      len = dv.getUint16(pos+6, le); valOff = pos+8;
+    }
+    storeTag(dv, tags, group, elem, vr, valOff, len, le);
+    pos = valOff + len;
+    if(metaOnly && !(group===0x0002)) break;
+  }
+  return pos;
+}
+
+// genel dataset okuyucu
+function readDataset(dv, pos, tags, explicit, le){
+  const n = dv.byteLength;
+  while(pos + 8 <= n){
+    const group = dv.getUint16(pos, le);
+    const elem  = dv.getUint16(pos+2, le);
+    let vr, len, valOff;
+    if(explicit){
+      vr = String.fromCharCode(dv.getUint8(pos+4), dv.getUint8(pos+5));
+      if(VR_LONG.has(vr)){ len = dv.getUint32(pos+8, le); valOff = pos+12; }
+      else { len = dv.getUint16(pos+6, le); valOff = pos+8; }
+    } else {
+      vr = null; len = dv.getUint32(pos+4, le); valOff = pos+8;
+    }
+    // Pixel Data (7FE0,0010) — dur ve sakla
+    if(group===0x7FE0 && elem===0x0010){
+      if(len === 0xFFFFFFFF){ tags["7FE0,0010_encapsulated"] = true; return; }
+      tags["7FE0,0010_off"] = valOff; tags["7FE0,0010_len"] = len; tags["7FE0,0010_vr"] = vr;
+      return;
+    }
+    if(len === 0xFFFFFFFF){ // tanımsız uzunluk (sequence) — atla, güvenli çıkış
+      return;
+    }
+    storeTag(dv, tags, group, elem, vr, valOff, len, le);
+    pos = valOff + len;
+  }
+}
+
+function storeTag(dv, tags, group, elem, vr, off, len, le){
+  const key = hex4(group)+","+hex4(elem);
+  // sayısal / metinsel ayrımı basitçe VR'den ya da bilinen etiketlerden
+  const numericVR = vr && ["US","SS","UL","SL","FL","FD","AT"].includes(vr);
+  if(key==="0028,0010"||key==="0028,0011"||key==="0028,0100"||key==="0028,0101"||
+     key==="0028,0102"||key==="0028,0103"||key==="0028,0002"){
+    tags[key] = dv.getUint16(off, le); return;
+  }
+  // string olarak sakla (çoğu tag)
+  tags[key] = readString(dv, off, len);
+}
+
+function hex4(v){ return v.toString(16).toUpperCase().padStart(4,"0"); }
+
+function firstNum(s){ if(s==null) return null; const m=(""+s).split("\\")[0]; const v=parseFloat(m); return isNaN(v)?null:v; }
+
+function buildInstance(dv, tags){
+  const rows = tags["0028,0010"], cols = tags["0028,0011"];
+  if(!rows || !cols) return {error:"Görüntü boyutu (Rows/Columns) bulunamadı."};
+  if(tags["7FE0,0010_encapsulated"]) return {error:"compressed"};
+  const pxOff = tags["7FE0,0010_off"], pxLen = tags["7FE0,0010_len"];
+  if(pxOff==null) return {error:"Pixel Data bulunamadı."};
+
+  const bits = tags["0028,0100"] || 16;
+  const pixelRep = tags["0028,0103"] || 0;      // 0 unsigned, 1 signed
+  const samples = tags["0028,0002"] || 1;
+  const photometric = (tags["0028,0004"]||"MONOCHROME2").replace(/\0/g,"").trim();
+  const slope = firstNum(tags["0028,1053"]) ?? 1;
+  const intercept = firstNum(tags["0028,1052"]) ?? 0;
+  let wc = firstNum(tags["0028,1050"]);
+  let ww = firstNum(tags["0028,1051"]);
+  const psStr = tags["0028,0030"];
+  let pxSpacing = null;
+  if(psStr){ const p = (""+psStr).split("\\").map(parseFloat); if(p.length>=2 && !isNaN(p[0])) pxSpacing=[p[0],p[1]]; }
+
+  const le = true;
+  const N = rows*cols;
+  let mvals; // modality değerleri (Float32) — grayscale
+  let rgb = null;
+
+  if(samples===3){
+    // renkli — doğrudan RGB (planar 0 varsay)
+    rgb = new Uint8ClampedArray(N*4);
+    for(let i=0;i<N;i++){
+      rgb[i*4]=dv.getUint8(pxOff+i*3); rgb[i*4+1]=dv.getUint8(pxOff+i*3+1);
+      rgb[i*4+2]=dv.getUint8(pxOff+i*3+2); rgb[i*4+3]=255;
+    }
+  } else {
+    mvals = new Float32Array(N);
+    if(bits<=8){
+      for(let i=0;i<N;i++){ let r = dv.getUint8(pxOff+i); if(pixelRep) r = (r<<24)>>24; mvals[i]=r*slope+intercept; }
+    } else {
+      for(let i=0;i<N;i++){ let r = pixelRep ? dv.getInt16(pxOff+i*2, le) : dv.getUint16(pxOff+i*2, le); mvals[i]=r*slope+intercept; }
+    }
+  }
+
+  // min/max
+  let mn=Infinity, mx=-Infinity;
+  if(mvals){ for(let i=0;i<N;i++){ const v=mvals[i]; if(v<mn)mn=v; if(v>mx)mx=v; } }
+  else { mn=0; mx=255; }
+  if(wc==null) wc = (mn+mx)/2;
+  if(ww==null) ww = Math.max(1, mx-mn);
+
+  return {
+    rows, cols, mvals, rgb, photometric, mn, mx, wc, ww, pxSpacing,
+    instanceNumber: firstNum(tags["0020,0013"]) ?? 0,
+    sliceLoc: firstNum(tags["0020,1041"]),
+    meta:{
+      patientName: cleanName(tags["0010,0010"]),
+      patientId: tags["0010,0020"]||"—",
+      sex: tags["0010,0040"]||"—",
+      modality: tags["0008,0060"]||"—",
+      studyDesc: tags["0008,1030"]||"—",
+      seriesDesc: tags["0008,103E"]||"—",
+      seriesNo: tags["0020,0011"]||"—",
+      bodyPart: tags["0018,0015"]||"—",
+      manufacturer: tags["0008,0070"]||"—",
+      station: tags["0008,1010"]||"—",
+      studyDate: fmtDate(tags["0008,0020"]),
+      tr: firstNum(tags["0018,0080"]),
+      te: firstNum(tags["0018,0081"]),
+      thickness: firstNum(tags["0018,0050"]),
+      fieldStrength: firstNum(tags["0018,0087"]),
+      sequence: tags["0018,0024"]||null,
+      bits, pixelRep,
+    }
+  };
+}
+function cleanName(s){ if(!s) return "—"; return (""+s).replace(/\^/g," ").replace(/\s+/g," ").trim() || "—"; }
+function fmtDate(s){ if(!s||s.length<8) return "—"; return s.slice(0,4)+"-"+s.slice(4,6)+"-"+s.slice(6,8); }
+
+/* ==========================================================================
+   2) DOSYA YÜKLEME
+   ========================================================================== */
+$("#btnOpen").onclick = ()=> $("#fileInput").click();
+$("#fileInput").onchange = e => loadFiles(e.target.files);
+
+function loadFiles(fileList){
+  const files = [...fileList].filter(f=>!/\.(png|jpg|jpeg|gif|txt|pdf|xml|html|ini)$/i.test(f.name));
+  if(!files.length){ toast("DICOM dosyası bulunamadı."); return; }
+  toast(files.length+" dosya okunuyor…");
+  const insts = []; let done=0, compressed=0, failed=0;
+  files.forEach(f=>{
+    const rd = new FileReader();
+    rd.onload = ()=>{
+      try{
+        const r = parseDicom(rd.result);
+        if(r && r.mvals!==undefined || (r && r.rgb)) { if(!r.error) insts.push(r); }
+        if(r && r.error==="compressed") compressed++;
+        else if(r && r.error) failed++;
+      }catch(err){ failed++; }
+      if(++done===files.length) finish();
+    };
+    rd.onerror = ()=>{ failed++; if(++done===files.length) finish(); };
+    rd.readAsArrayBuffer(f);
+  });
+  function finish(){
+    if(!insts.length){
+      if(compressed){ toast("Bu dosyalar sıkıştırılmış (JPEG). Bu hafif okuyucu yalnız sıkıştırılmamış DICOM açar."); }
+      else toast("Görüntü çözülemedi.");
+      return;
+    }
+    insts.sort((a,b)=> (a.instanceNumber-b.instanceNumber) || 0);
+    setSeries(insts, insts[0].meta.seriesDesc);
+    let msg = insts.length+" kesit yüklendi";
+    if(compressed) msg += " · "+compressed+" sıkıştırılmış atlandı";
+    toast(msg);
+  }
+}
+
+// Drag & drop
+["dragenter","dragover"].forEach(ev=>viewport.addEventListener(ev,e=>{e.preventDefault();viewport.classList.add("dragover")}));
+["dragleave","drop"].forEach(ev=>viewport.addEventListener(ev,e=>{e.preventDefault();viewport.classList.remove("dragover")}));
+viewport.addEventListener("drop", e=>{
+  const items = e.dataTransfer.files; if(items && items.length) loadFiles(items);
+});
+
+/* ==========================================================================
+   3) SENTETİK DEMO SERİSİ  (beyin benzeri MR, çok kesitli)
+   ========================================================================== */
+function buildDemo(){
+  const R=232, C=232, S=22, insts=[];
+  const cx=C/2, cy=R/2;
+  for(let s=0; s<S; s++){
+    const t = (s+0.5)/S;                    // 0..1 kafa yüksekliği
+    const prof = Math.sin(Math.PI*t);       // uçlarda küçük kafa kesiti
+    const headA = (C*0.44)*(0.55+0.45*prof);// yatay yarıçap
+    const headB = (R*0.40)*(0.55+0.45*prof);
+    const mv = new Float32Array(R*C);
+    for(let y=0;y<R;y++){
+      for(let x=0;x<C;x++){
+        const dx=(x-cx)/headA, dy=(y-cy)/headB, rr=dx*dx+dy*dy;
+        let v = 8 + noise(x,y)*6;            // arka plan (hava/gürültü)
+        if(rr < 1.0){
+          const edge = 1-rr;
+          // kafatası (dış halka) parlak
+          if(rr>0.86){ v = 720 + noise(x*1.7,y*1.7)*80; }
+          else {
+            // beyin dokusu + girus dokusu
+            const gyri = 0.5+0.5*Math.sin(x*0.55+noise(x,y)*4)*Math.cos(y*0.5+noise(y,x)*4);
+            v = 300 + gyri*220 + edge*90 + noise(x*0.9,y*0.9)*40;
+            // ventriküller (BOS koyu) merkeze yakın iki boşluk
+            const vx=Math.abs(x-cx)-C*0.06;
+            const vent = Math.exp(-((vx*vx)/(2*40) + ((y-cy)*(y-cy))/(2*260)));
+            v = v*(1-0.85*vent) + 40*vent;
+          }
+        }
+        // öğretim için küçük "lezyon" (birkaç orta kesitte parlak odak)
+        if(s>=9 && s<=13){
+          const lx=x-(cx+C*0.15), ly=y-(cy-R*0.05);
+          const les=Math.exp(-(lx*lx+ly*ly)/(2*22));
+          v = v*(1-les) + (v+520)*les;
+        }
+        mv[y*C+x]=v;
+      }
+    }
+    let mn=Infinity,mx=-Infinity; for(let i=0;i<mv.length;i++){const q=mv[i];if(q<mn)mn=q;if(q>mx)mx=q;}
+    insts.push({
+      rows:R, cols:C, mvals:mv, rgb:null, photometric:"MONOCHROME2",
+      mn, mx, wc:360, ww:620, pxSpacing:[0.86,0.86],
+      instanceNumber:s+1, sliceLoc:(s-S/2)*5,
+      meta:{
+        patientName:"DEMO HASTA", patientId:"MR-DEMO-0001", sex:"—",
+        modality:"MR", studyDesc:"Beyin MR (Örnek)", seriesDesc:"T2 TSE Axial · DEMO",
+        seriesNo:"3", bodyPart:"BRAIN", manufacturer:"Öğretici", station:"ATÖLYE",
+        studyDate:"2026-07-17", tr:4500, te:96, thickness:5, fieldStrength:1.5,
+        sequence:"SE\\T2", bits:16, pixelRep:0
+      }
+    });
+  }
+  setSeries(insts, "T2 TSE Axial · DEMO");
+  toast("Örnek beyin MR serisi yüklendi (22 kesit).");
+}
+// hızlı sözde-gürültü
+function noise(x,y){ const s=Math.sin(x*12.9898+y*78.233)*43758.5453; return s-Math.floor(s); }
+
+$("#btnDemo").onclick = buildDemo;
+
+/* ==========================================================================
+   4) SERİ / GÖRÜNTÜLEME
+   ========================================================================== */
+function setSeries(insts, label){
+  state.series = insts; state.index = 0;
+  const cur = insts[0];
+  state.wc = cur.wc; state.ww = cur.ww;
+  state.pxSpacing = cur.pxSpacing;
+  state.zoom = 1; state.panX = 0; state.panY = 0; state.invert=false; state.measure=[];
+  fitView();
+  buildThumbs();
+  render();
+  renderMeta();
+}
+
+function curInst(){ return state.series[state.index]; }
+
+// window/level uygula → ImageData
+function toImageData(inst, wc, ww, invert){
+  const N = inst.rows*inst.cols;
+  const img = ctx.createImageData(inst.cols, inst.rows);
+  const d = img.data;
+  if(inst.rgb){
+    d.set(inst.rgb); return img;
+  }
+  const mono1 = inst.photometric === "MONOCHROME1";
+  const lo = wc - 0.5 - (ww-1)/2;
+  const scale = 255/(ww-1||1);
+  const mv = inst.mvals;
+  for(let i=0;i<N;i++){
+    let g = (mv[i]-lo)*scale;
+    g = g<0?0:g>255?255:g;
+    if(mono1) g = 255-g;
+    if(invert) g = 255-g;
+    const j=i*4; d[j]=d[j+1]=d[j+2]=g; d[j+3]=255;
+  }
+  return img;
+}
+
+function render(){
+  const inst = curInst();
+  if(!inst){ ctx.clearRect(0,0,cv.width,cv.height); updateOverlays(); return; }
+  // offscreen olarak görüntüyü çiz, sonra zoom/pan ile ana canvasa aktar
+  const off = render._off || (render._off = document.createElement("canvas"));
+  off.width = inst.cols; off.height = inst.rows;
+  off.getContext("2d").putImageData(toImageData(inst, state.wc, state.ww, state.invert), 0, 0);
+
+  // canvas boyutunu viewport'a uydur
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  cv.width = vw; cv.height = vh;
+  ctx.clearRect(0,0,vw,vh);
+  ctx.imageSmoothingEnabled = false;
+
+  // temel sığdırma ölçeği
+  const base = Math.min(vw/inst.cols, vh/inst.rows);
+  const sc = base*state.zoom;
+  const dw = inst.cols*sc, dh = inst.rows*sc;
+  const dx = (vw-dw)/2 + state.panX, dy=(vh-dh)/2 + state.panY;
+  ctx.drawImage(off, dx, dy, dw, dh);
+
+  // ölçüm çizgisi
+  drawMeasure(dx, dy, sc);
+
+  render._geom = {dx,dy,sc};
+  updateOverlays();
+  updateScalebar(sc);
+  syncThumbActive();
+}
+
+function drawMeasure(dx,dy,sc){
+  if(state.measure.length===0) return;
+  ctx.save();
+  ctx.strokeStyle="#3ec7c4"; ctx.fillStyle="#3ec7c4"; ctx.lineWidth=1.4;
+  ctx.font="12px ui-monospace,monospace";
+  const pts = state.measure.map(p=>({x:dx+p.x*sc, y:dy+p.y*sc}));
+  pts.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x,p.y,3,0,7); ctx.fill(); });
+  if(pts.length===2){
+    ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y); ctx.lineTo(pts[1].x,pts[1].y); ctx.stroke();
+    const dpx = Math.hypot(state.measure[1].x-state.measure[0].x, state.measure[1].y-state.measure[0].y);
+    let label;
+    if(state.pxSpacing){ const mm = dpx*state.pxSpacing[0]; label = mm.toFixed(1)+" mm"; }
+    else label = dpx.toFixed(0)+" px";
+    const midx=(pts[0].x+pts[1].x)/2, midy=(pts[0].y+pts[1].y)/2;
+    ctx.fillStyle="rgba(0,0,0,.65)"; const w=ctx.measureText(label).width+10;
+    ctx.fillRect(midx+6, midy-20, w, 18);
+    ctx.fillStyle="#7ff0ea"; ctx.fillText(label, midx+11, midy-7);
+  }
+  ctx.restore();
+}
+
+function updateOverlays(){
+  const inst = curInst();
+  if(!inst){ $("#ovlTL").innerHTML=$("#ovlTR").innerHTML=$("#ovlBL").innerHTML=$("#ovlBR").innerHTML=""; return; }
+  const m = inst.meta;
+  $("#ovlTL").innerHTML =
+    `<span class="hot">${esc(m.patientName)}</span><br>`+
+    `<span class="k">ID</span> ${esc(m.patientId)}<br>`+
+    `${esc(m.modality)} · ${esc(m.seriesDesc)}`;
+  $("#ovlTR").innerHTML =
+    `<span class="k">Kesit</span> <span class="hot">${state.index+1}</span>/${state.series.length}<br>`+
+    `<span class="k">Im#</span> ${inst.instanceNumber}<br>`+
+    `${esc(m.studyDate)}`;
+  $("#ovlBL").innerHTML =
+    `<span class="k">W</span> <span class="hot">${Math.round(state.ww)}</span>  `+
+    `<span class="k">L</span> <span class="hot">${Math.round(state.wc)}</span><br>`+
+    `<span class="k">Zoom</span> ${(state.zoom*100).toFixed(0)}%  ${state.invert?'<span class="hot">INV</span>':''}`;
+  const trte = (m.tr&&m.te)? `TR ${m.tr} / TE ${m.te}`:"";
+  $("#ovlBR").innerHTML =
+    `${m.thickness?('<span class="k">Kalınlık</span> '+m.thickness+' mm<br>'):''}`+
+    `${trte?('<span class="k">'+esc(trte)+'</span><br>'):''}`+
+    `<span class="k">Araç</span> <span class="hot">${toolName(state.tool)}</span>`;
+}
+function toolName(t){ return {wl:"W/L",zoom:"ZOOM",pan:"KAYDIR",measure:"ÖLÇÜM"}[t]||t; }
+function esc(s){ return (""+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function updateScalebar(sc){
+  const sb=$("#scalebar");
+  if(!state.pxSpacing){ sb.style.display="none"; return; }
+  const mmPerPx = state.pxSpacing[0];
+  // ~90px hedef uzunluk için yuvarlak mm bul
+  let target = 90/sc*mmPerPx;
+  const nice=[1,2,5,10,20,50,100]; let mm=nice[0];
+  for(const n of nice){ if(n<=target) mm=n; }
+  const w = mm/mmPerPx*sc;
+  sb.style.display="block";
+  sb.querySelector(".bar").style.width=w+"px";
+  sb.querySelector("span").textContent=mm+" mm";
+}
+
+/* --------------------------------------------------------------------------
+   THUMBNAILS
+   ------------------------------------------------------------------------ */
+function buildThumbs(){
+  const strip=$("#strip"); strip.innerHTML="";
+  if(!state.series.length){ strip.innerHTML='<span class="empty">Seri yüklenmedi.</span>'; return; }
+  state.series.forEach((inst,i)=>{
+    const d=document.createElement("div"); d.className="thumb"; d.dataset.i=i;
+    const c=document.createElement("canvas"); c.width=inst.cols; c.height=inst.rows;
+    c.getContext("2d").putImageData(toImageData(inst, inst.wc, inst.ww, false),0,0);
+    d.appendChild(c);
+    const n=document.createElement("div"); n.className="n"; n.textContent=i+1; d.appendChild(n);
+    d.onclick=()=>{ state.index=i; state.measure=[]; render(); renderMeta(); };
+    strip.appendChild(d);
+  });
+  syncThumbActive();
+}
+function syncThumbActive(){
+  document.querySelectorAll(".thumb").forEach(t=>t.classList.toggle("active", +t.dataset.i===state.index));
+  const act=document.querySelector(".thumb.active");
+  if(act) act.scrollIntoView({block:"nearest",inline:"nearest"});
+}
+
+/* ==========================================================================
+   5) ETKİLEŞİM  (araçlar)
+   ========================================================================== */
+function screenToImage(clientX, clientY){
+  const g=render._geom; if(!g) return null;
+  const rect=cv.getBoundingClientRect();
+  const x=(clientX-rect.left-g.dx)/g.sc;
+  const y=(clientY-rect.top-g.dy)/g.sc;
+  return {x,y};
+}
+
+viewport.addEventListener("mousedown", e=>{
+  if(!curInst()) return;
+  if(state.tool==="measure"){
+    const p=screenToImage(e.clientX,e.clientY); if(!p) return;
+    if(state.measure.length>=2) state.measure=[];
+    state.measure.push(p); render(); return;
+  }
+  state.drag={x:e.clientX,y:e.clientY,wc:state.wc,ww:state.ww,panX:state.panX,panY:state.panY,zoom:state.zoom};
+});
+window.addEventListener("mousemove", e=>{
+  if(!state.drag) return;
+  const dx=e.clientX-state.drag.x, dy=e.clientY-state.drag.y;
+  if(state.tool==="wl"){
+    state.ww=Math.max(1, state.drag.ww + dx*2);
+    state.wc=state.drag.wc - dy*2;
+    render();
+  } else if(state.tool==="pan"){
+    state.panX=state.drag.panX+dx; state.panY=state.drag.panY+dy; render();
+  } else if(state.tool==="zoom"){
+    state.zoom=Math.max(0.2, Math.min(12, state.drag.zoom*(1 - dy*0.006))); render();
+  }
+});
+window.addEventListener("mouseup", ()=> state.drag=null);
+
+// tekerlek: kesit gezinme
+viewport.addEventListener("wheel", e=>{
+  if(!state.series.length) return;
+  e.preventDefault();
+  if(e.ctrlKey){ state.zoom=Math.max(0.2,Math.min(12,state.zoom*(e.deltaY<0?1.1:0.9))); render(); return; }
+  const dir = e.deltaY>0?1:-1;
+  changeSlice(dir);
+},{passive:false});
+
+function changeSlice(dir){
+  const n=state.series.length; if(!n) return;
+  state.index=Math.max(0,Math.min(n-1,state.index+dir));
+  state.measure=[]; render(); renderMeta();
+}
+
+// klavye
+window.addEventListener("keydown", e=>{
+  if(!state.series.length) return;
+  switch(e.key){
+    case "ArrowDown": case "ArrowRight": changeSlice(1); e.preventDefault(); break;
+    case "ArrowUp": case "ArrowLeft": changeSlice(-1); e.preventDefault(); break;
+    case "+": case "=": state.zoom=Math.min(12,state.zoom*1.15); render(); break;
+    case "-": state.zoom=Math.max(0.2,state.zoom/1.15); render(); break;
+    case "i": case "I": doAct("invert"); break;
+    case "r": case "R": doAct("reset"); break;
+  }
+});
+
+/* araç seçimi */
+document.querySelectorAll(".tool[data-tool]").forEach(b=>{
+  b.onclick=()=>{
+    state.tool=b.dataset.tool;
+    document.querySelectorAll(".tool[data-tool]").forEach(x=>x.classList.toggle("active",x===b));
+    if(state.tool==="measure") toast("İki noktaya tıklayarak mesafe ölç.");
+    viewport.style.cursor = state.tool==="pan"?"grab":(state.tool==="measure"?"crosshair":"crosshair");
+    updateOverlays();
+  };
+});
+/* eylemler */
+document.querySelectorAll(".tool[data-act]").forEach(b=> b.onclick=()=>doAct(b.dataset.act));
+function doAct(a){
+  if(!curInst() && a!=="reset") return;
+  if(a==="invert"){ state.invert=!state.invert; render(); toast(state.invert?"Negatif açık":"Negatif kapalı"); }
+  else if(a==="fit"){ fitView(); render(); }
+  else if(a==="reset"){
+    const c=curInst(); if(c){ state.wc=c.wc; state.ww=c.ww; } state.invert=false; state.measure=[]; fitView(); render();
+    toast("Sıfırlandı");
+  }
+}
+function fitView(){ state.zoom=1; state.panX=0; state.panY=0; }
+
+/* presetler */
+document.querySelectorAll(".tool[data-preset]").forEach(b=> b.onclick=()=>{
+  const c=curInst(); if(!c) return;
+  const p=b.dataset.preset;
+  if(p==="brain"){ state.wc=360; state.ww=620; }
+  else if(p==="soft"){ state.wc=c.mn+(c.mx-c.mn)*0.35; state.ww=(c.mx-c.mn)*0.55; }
+  else if(p==="full"){ state.wc=(c.mn+c.mx)/2; state.ww=Math.max(1,c.mx-c.mn); }
+  render(); toast("Preset: "+b.textContent.replace(/\s+/g,' ').trim());
+});
+
+/* sağ panel sekmeleri */
+document.querySelectorAll(".side .tab").forEach(t=> t.onclick=()=>{
+  document.querySelectorAll(".side .tab").forEach(x=>x.classList.toggle("active",x===t));
+  const p=t.dataset.pane;
+  $("#paneTut").style.display = p==="tut"?"block":"none";
+  $("#paneMeta").style.display = p==="meta"?"block":"none";
+});
+
+window.addEventListener("resize", ()=>{ if(state.series.length) render(); });
+
+/* ==========================================================================
+   6) METADATA PANELİ
+   ========================================================================== */
+function renderMeta(){
+  const inst=curInst(); const el=$("#paneMeta");
+  if(!inst){ el.innerHTML='<p style="color:var(--ink-mute);font-size:12px">Görüntü yükleyince DICOM etiketleri burada listelenir.</p>'; return; }
+  const m=inst.meta;
+  const row=(lbl,val,code,hi)=>`<div class="meta-row"><span class="lbl">${lbl}${code?` <span class="tagcode">(${code})</span>`:''}</span><span class="val ${hi?'hi':''}">${esc(val)}</span></div>`;
+  el.innerHTML =
+    `<div class="meta-h">Hasta / Çalışma</div>`+
+    row("Hasta Adı", m.patientName, "0010,0010", true)+
+    row("Hasta ID", m.patientId, "0010,0020")+
+    row("Cinsiyet", m.sex, "0010,0040")+
+    row("Çalışma", m.studyDesc, "0008,1030")+
+    row("Tarih", m.studyDate, "0008,0020")+
+    `<div class="meta-h">Seri</div>`+
+    row("Modalite", m.modality, "0008,0060", true)+
+    row("Seri Açıklaması", m.seriesDesc, "0008,103E")+
+    row("Seri No", m.seriesNo, "0020,0011")+
+    row("Vücut Bölgesi", m.bodyPart, "0018,0015")+
+    row("Sekans", m.sequence||"—", "0018,0024")+
+    `<div class="meta-h">Görüntü</div>`+
+    row("Boyut", inst.cols+" × "+inst.rows+" px", "0028,0011/10", true)+
+    row("Bit", m.bits+" bit "+(m.pixelRep?"(signed)":"(unsigned)"), "0028,0100")+
+    row("Fotometrik", inst.photometric, "0028,0004")+
+    row("Piksel Aralığı", inst.pxSpacing?inst.pxSpacing.map(x=>x.toFixed(3)).join(" \\ ")+" mm":"—", "0028,0030")+
+    row("Kesit Kalınlığı", m.thickness!=null?m.thickness+" mm":"—", "0018,0050")+
+    `<div class="meta-h">MR Parametreleri</div>`+
+    row("TR", m.tr!=null?m.tr+" ms":"—", "0018,0080")+
+    row("TE", m.te!=null?m.te+" ms":"—", "0018,0081")+
+    row("Manyetik Alan", m.fieldStrength!=null?m.fieldStrength+" T":"—", "0018,0087")+
+    row("Üretici", m.manufacturer, "0008,0070")+
+    row("Değer Aralığı", Math.round(inst.mn)+" … "+Math.round(inst.mx), "");
+}
+
+/* ==========================================================================
+   7) ÖĞRETİCİ  (adım adım, iQ-VIEW mantığı)
+   ========================================================================== */
+const lessons = [
+  {
+    kicker:"Giriş",
+    title:"DICOM ve MR: temel kavramlar",
+    coach:null,
+    html:`<p><strong>DICOM</strong> (Digital Imaging and Communications in Medicine), tıbbi görüntülerin evrensel dosya biçimidir. Hasta CD'ndeki her <span class="hot">.dcm</span> dosyası tek bir <strong>kesiti</strong> (slice) ve o kesite ait hasta/cihaz bilgilerini (etiketler) taşır.</p>
+    <p>Bir MR <strong>serisi</strong>, aynı bölgenin arka arkaya dizilmiş onlarca kesitinden oluşur. Bu kesitleri sırayla gezerek 3 boyutlu anatomiyi zihninde kurarsın.</p>
+    <div class="try"><b>Dene</b>Sağ üstteki <strong>"Örnek Seri"</strong> düğmesine bas — 22 kesitlik örnek bir beyin MR'ı yüklenir. Kendi CD'ndeki dosyaları açmak için <strong>"DICOM Aç"</strong>.</div>
+    <div class="note">Bu araç bir öğrenme atölyesidir; gerçek tanı, kalibre radyoloji monitörlerinde ve hekim değerlendirmesiyle yapılır.</div>`
+  },
+  {
+    kicker:"Adım 1",
+    title:"Kesitler arasında gezinmek",
+    coach:null,
+    html:`<p>MR okumanın ilk becerisi, seriyi <strong>akıcı biçimde taramaktır</strong>. Bir yapının gerçekten patoloji mi yoksa komşu kesitin normal anatomisi mi olduğunu ancak yukarı-aşağı gezerek anlarsın.</p>
+    <p>Üç yol var:</p>
+    <table class="seq-table"><tr><th>Yöntem</th><th>Nasıl</th></tr>
+    <tr><td>Fare tekerleği</td><td>Görüntü üzerinde yukarı/aşağı</td></tr>
+    <tr><td>Ok tuşları</td><td>↑ ↓ ← →</td></tr>
+    <tr><td>Küçük resimler</td><td>Alttaki şeritten tıkla</td></tr></table>
+    <div class="try"><b>Dene</b>Görüntünün üstünde <strong>fare tekerleğini</strong> çevir. Sağ üstteki <span class="hot">Kesit x/22</span> sayacının değiştiğini gör. Ortadaki kesitlerde küçük parlak bir "lezyon" göreceksin.</div>`
+  },
+  {
+    kicker:"Adım 2 · en önemli araç",
+    title:"Pencere / Seviye (kontrast & parlaklık)",
+    coach:"wl",
+    html:`<p>MR görüntüsü 16-bit'tir: ekranın gösterebileceğinden çok daha fazla gri tonu içerir. <strong>Pencereleme</strong> (windowing), bu geniş aralıktan hangi bölümü görüneceğini seçmendir. Radyolojide en çok kullanılan araç budur.</p>
+    <table class="seq-table"><tr><th>Terim</th><th>Anlamı</th></tr>
+    <tr><td>Window (W)</td><td>Kontrast — pencerenin genişliği. Dar = sert kontrast.</td></tr>
+    <tr><td>Level (L)</td><td>Parlaklık — pencerenin merkezi.</td></tr></table>
+    <p>Sol raydaki <span class="hot">W/L</span> aracı seçiliyken görüntü üzerinde sürükle: <strong>sağa/sola</strong> kontrastı, <strong>yukarı/aşağı</strong> parlaklığı değiştirir. Sol alttaki <span class="hot">W</span> ve <span class="hot">L</span> değerlerini izle.</p>
+    <div class="try"><b>Dene</b>W/L aracıyla görüntüde sürükle. Sonra sol alttaki <strong>Beyin / Yumuşak Doku / Tam</strong> hazır ayarlarını (preset) dene — aynı görüntünün ne kadar farklı okunabildiğini gör.</div>`
+  },
+  {
+    kicker:"Adım 3",
+    title:"Yakınlaştır ve kaydır",
+    coach:"zoom",
+    html:`<p>Küçük bir lezyonu ya da anatomik detayı incelemek için büyütmen gerekir.</p>
+    <table class="seq-table"><tr><th>İşlem</th><th>Nasıl</th></tr>
+    <tr><td>Yakınlaştır</td><td><span class="hot">Zoom</span> aracı + sürükle, veya <strong>Ctrl + tekerlek</strong>, veya + / − tuşları</td></tr>
+    <tr><td>Kaydır</td><td><span class="hot">Kaydır</span> aracı + sürükle</td></tr>
+    <tr><td>Sığdır</td><td><span class="hot">Sığdır</span> düğmesi eski görünüme döner</td></tr></table>
+    <div class="try"><b>Dene</b>Zoom aracını seç, ortadaki kesitlerdeki parlak odağa yakınlaş; sonra Kaydır ile ortala.</div>`
+  },
+  {
+    kicker:"Adım 4",
+    title:"Mesafe ölçmek (mm)",
+    coach:"measure",
+    html:`<p>Bir lezyonun boyutunu bildirmek için ölçüm yaparsın. Araç, DICOM'daki <span class="hot">Piksel Aralığı (0028,0030)</span> etiketini kullanarak pikseli <strong>milimetreye</strong> çevirir — bu yüzden ölçüm gerçek anatomik boyuttur.</p>
+    <div class="try"><b>Dene</b>Sol raydan <span class="hot">Ölç</span> aracını seç. Parlak odağın bir kenarına tıkla, sonra karşı kenarına tıkla. Çizginin yanında <strong>mm</strong> cinsinden uzunluk çıkar. Yeni ölçüm için tekrar iki kez tıkla.</div>
+    <div class="note">Kendi dosyanda piksel aralığı etiketi yoksa ölçüm <strong>px</strong> cinsinden gösterilir.</div>`
+  },
+  {
+    kicker:"Adım 5",
+    title:"Negatif, sıfırlama ve etiketler",
+    coach:"invert",
+    html:`<p><span class="hot">İnvert</span> (negatif) siyah-beyazı ters çevirir; bazı yapılar ters kontrastta daha kolay seçilir. <span class="hot">Sıfırla</span> pencereyi, zoom'u ve ölçümleri fabrika ayarına döndürür (kısayol: R).</p>
+    <p>Sağ üstteki <strong>"DICOM Etiketleri"</strong> sekmesi, görüntünün arkasındaki tüm meta veriyi gösterir: hasta, modalite, sekans, TR/TE, kesit kalınlığı, piksel aralığı… Gerçek bir görüntüyü yorumlarken bu alanlar sekansın ne olduğunu anlamanı sağlar.</p>
+    <div class="try"><b>Dene</b>Önce <span class="hot">İnvert</span>'e bas. Sonra sağ üstteki <strong>"DICOM Etiketleri"</strong> sekmesine geç ve TR/TE değerlerini incele.</div>`
+  },
+  {
+    kicker:"Adım 6 · yorumlama",
+    title:"MR sekanslarını tanımak",
+    coach:null,
+    html:`<p>Aynı anatominin farklı sekansları farklı bilgiyi verir. Hangi sekansa baktığını <strong>DICOM Etiketleri</strong>'ndeki seri açıklaması ile <strong>TR/TE</strong> değerlerinden anlarsın.</p>
+    <table class="seq-table"><tr><th>Sekans</th><th>Sıvı (BOS)</th><th>İpucu</th></tr>
+    <tr><td>T1</td><td>Koyu</td><td>Kısa TR/TE · anatomi, yağ parlak</td></tr>
+    <tr><td>T2</td><td>Parlak</td><td>Uzun TR/TE · çoğu patoloji parlar</td></tr>
+    <tr><td>FLAIR</td><td>Koyu (baskılı)</td><td>T2 ama BOS bastırılmış · ödem/lezyon çok belirgin</td></tr>
+    <tr><td>DWI</td><td>—</td><td>Akut iskemi parlak (difüzyon kısıtlı)</td></tr></table>
+    <p><strong>Pratik kural:</strong> "Su parlaksa T2 ailesi, su koyuysa T1." Örnek serimiz bir <span class="hot">T2</span>'dir (BOS/ventriküller koyu ayarlanmış olsa da uzun TR/TE ile T2 ağırlıklı).</p>
+    <div class="note">Bu yalnızca bir başlangıç haritasıdır. Sekans yorumu ve tanı, radyoloji eğitiminin ve hekim onayının konusudur.</div>`
+  },
+  {
+    kicker:"Bitti",
+    title:"Sistematik okuma alışkanlığı",
+    coach:null,
+    html:`<p>Öğrendiğin araçları her seferinde aynı sırayla kullan — <strong>sistematik yaklaşım</strong> gözden kaçmayı azaltır:</p>
+    <table class="seq-table"><tr><th>#</th><th>Adım</th></tr>
+    <tr><td>1</td><td>Etiketleri oku: hasta, bölge, sekans doğru mu?</td></tr>
+    <tr><td>2</td><td>Pencereyi optimize et (preset + ince ayar)</td></tr>
+    <tr><td>3</td><td>Seriyi baştan sona tara — bir kez hızlı, bir kez yavaş</td></tr>
+    <tr><td>4</td><td>Şüpheli alanı büyüt, komşu kesitlerle karşılaştır</td></tr>
+    <tr><td>5</td><td>Bulguyu ölç ve konumunu not et</td></tr></table>
+    <p>Artık kendi Hasta CD'ndeki dosyaları <strong>"DICOM Aç"</strong> ile yükleyip bu adımları uygulayabilirsin. Kolay gelsin! 🧠</p>
+    <div class="try"><b>Dene</b>Baştan tekrar etmek için aşağıdaki listeden bir derse dön ya da kendi serini yükle.</div>`
+  },
+];
+
+let curLesson = 0;
+function renderTut(){
+  const el=$("#paneTut");
+  const L=lessons[curLesson];
+  // koçlama vurgusu
+  document.querySelectorAll(".tool").forEach(t=>t.classList.remove("coach"));
+  if(L.coach){ const b=document.querySelector(`.tool[data-tool="${L.coach}"]`)||document.querySelector(`.tool[data-act="${L.coach}"]`); if(b) b.classList.add("coach"); }
+
+  const dots = lessons.map((_,i)=>`<i class="${i<curLesson?'done':i===curLesson?'cur':''}"></i>`).join("");
+  const list = lessons.map((ls,i)=>`<button class="${i===curLesson?'cur':''}" data-l="${i}"><span class="num">${i+1}</span>${esc(ls.title)}</button>`).join("");
+
+  el.innerHTML =
+    `<div class="lesson-progress">${dots}</div>`+
+    `<div class="lesson-kicker">${esc(L.kicker)}</div>`+
+    `<h2 class="lesson-title">${esc(L.title)}</h2>`+
+    `<div class="lesson-body">${L.html}</div>`+
+    `<div class="lesson-nav">`+
+      `<button ${curLesson===0?'disabled':''} data-nav="-1">← Geri</button>`+
+      `<button class="next" data-nav="1">${curLesson===lessons.length-1?'Baştan':'Sonraki →'}</button>`+
+    `</div>`+
+    `<div class="meta-h" style="margin-top:22px">Tüm Dersler</div>`+
+    `<div class="lesson-list">${list}</div>`;
+
+  el.querySelectorAll("[data-nav]").forEach(b=> b.onclick=()=>{
+    const d=+b.dataset.nav;
+    curLesson = (curLesson+d+lessons.length)%lessons.length;
+    if(d===1 && curLesson===0){} // baştan
+    renderTut(); el.scrollTop=0;
+  });
+  el.querySelectorAll("[data-l]").forEach(b=> b.onclick=()=>{ curLesson=+b.dataset.l; renderTut(); el.scrollTop=0; });
+}
+
+/* ==========================================================================
+   BAŞLANGIÇ
+   ========================================================================== */
+renderTut();
+renderMeta();
+buildDemo();          // açılışta örnek seri yüklü gelsin
+</script>
+</body>
+</html>
